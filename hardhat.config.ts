@@ -1,6 +1,8 @@
 import "hardhat-preprocessor";
 import fs from "fs";
 import "solidity-docgen";
+import '@openzeppelin/hardhat-upgrades';
+import "dotenv/config";
 
 function getRemappings() {
   return fs
@@ -28,9 +30,19 @@ module.exports = {
       },
     }),
   },
+  networks: {
+    mainnet: {
+      url: process.env.RPC_MAINNET!,
+      gas: "auto",
+    },
+    goerli: {
+      url: process.env.RPC_GOERLI!,
+      gas: "auto",
+    },
+  },
   paths: {
     sources: "./src/contracts",
-    cache: "./cache_hardhat",
+    // cache: "./cache_hardhat",
   },
   docgen: {
     outputDir: "docs/docgen",
