@@ -780,7 +780,20 @@ contract EigenPodUnitTests_WithdrawalTests is EigenPodHarnessSetup, ProofParsing
         setJSON("./src/test/test-data/fullWithdrawalProof_Latest.json");
         _setWithdrawalProofParams();
 
-        // Process withdrawal
+        {
+            bytes32 withdrawalProofHash = keccak256(abi.encodePacked(
+                withdrawalToProve.withdrawalProof,
+                withdrawalToProve.slotProof,
+                withdrawalToProve.executionPayloadProof,
+                withdrawalToProve.timestampProof,
+                withdrawalToProve.historicalSummaryBlockRootProof,
+                withdrawalToProve.blockRootIndex,
+                withdrawalToProve.historicalSummaryIndex,
+                withdrawalToProve.blockRoot
+            ));
+            emit log_named_bytes32("withdrawalProofHash", withdrawalProofHash);
+        }
+        // Process withdrawal{}
         eigenPodHarness.verifyAndProcessWithdrawal(
             beaconStateRoot,
             withdrawalToProve,

@@ -7,6 +7,7 @@ import "@openzeppelin-upgrades/contracts/security/ReentrancyGuardUpgradeable.sol
 import "@openzeppelin-upgrades/contracts/utils/AddressUpgradeable.sol";
 import "@openzeppelin-upgrades/contracts/utils/math/MathUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "lib/forge-std/src/console.sol";
 
 import "../libraries/BeaconChainProofs.sol";
 import "../libraries/BytesLib.sol";
@@ -117,6 +118,7 @@ contract EigenPod is IEigenPod, Initializable, ReentrancyGuardUpgradeable, Eigen
 
     /// @notice Checks that `timestamp` is strictly greater than the value stored in `mostRecentWithdrawalTimestamp`
     modifier proofIsForValidTimestamp(uint64 timestamp) {
+        console.log("I am in here");
         require(
             timestamp > mostRecentWithdrawalTimestamp,
             "EigenPod.proofIsForValidTimestamp: beacon chain proof must be for timestamp after mostRecentWithdrawalTimestamp"
@@ -244,12 +246,14 @@ contract EigenPod is IEigenPod, Initializable, ReentrancyGuardUpgradeable, Eigen
             "EigenPod.verifyAndProcessWithdrawals: inputs must be same length"
         );
 
+        console.log("before latest block root proof");
         // Verify passed-in beaconStateRoot against oracle-provided block root:
         BeaconChainProofs.verifyStateRootAgainstLatestBlockRoot({
             latestBlockRoot: eigenPodManager.getBlockRootAtTimestamp(oracleTimestamp),
             beaconStateRoot: stateRootProof.beaconStateRoot,
             stateRootProof: stateRootProof.proof
         });
+        console.log("after latest block root proof");
 
         VerifiedWithdrawal memory withdrawalSummary;
         for (uint256 i = 0; i < withdrawalFields.length; i++) {
@@ -265,13 +269,16 @@ contract EigenPod is IEigenPod, Initializable, ReentrancyGuardUpgradeable, Eigen
             withdrawalSummary.sharesDeltaGwei += verifiedWithdrawal.sharesDeltaGwei;
         }
 
+        console.log("out of loop");
         // If any withdrawals are eligible for immediate redemption, send to the pod owner via
         // DelayedWithdrawalRouter
         if (withdrawalSummary.amountToSendGwei != 0) {
+            console.log("amount to send gwei is not 0");
             _sendETH_AsDelayedWithdrawal(podOwner, withdrawalSummary.amountToSendGwei * GWEI_TO_WEI);
         }
         // If any withdrawals resulted in a change in the pod's shares, update the EigenPodManager
         if (withdrawalSummary.sharesDeltaGwei != 0) {
+            console.log("shares delta gwei is not 0");
             eigenPodManager.recordBeaconChainETHBalanceUpdate(podOwner, withdrawalSummary.sharesDeltaGwei * int256(GWEI_TO_WEI));
         }
     }
@@ -592,8 +599,10 @@ contract EigenPod is IEigenPod, Initializable, ReentrancyGuardUpgradeable, Eigen
         proofIsForValidTimestamp(withdrawalProof.getWithdrawalTimestamp())
         returns (VerifiedWithdrawal memory)
     {
+        console.log("gonna get timestamp and hash");
         uint64 withdrawalTimestamp = withdrawalProof.getWithdrawalTimestamp();
         bytes32 validatorPubkeyHash = validatorFields.getPubkeyHash();
+        console.log("got timestamp and hash");
 
         /**
          * Withdrawal processing should only be performed for "ACTIVE" or "WITHDRAWN" validators.
@@ -612,6 +621,7 @@ contract EigenPod is IEigenPod, Initializable, ReentrancyGuardUpgradeable, Eigen
 
         provenWithdrawal[validatorPubkeyHash][withdrawalTimestamp] = true;
 
+        console.log("going to verify beacon chain proofs withdrawal");
         // Verifying the withdrawal against verified beaconStateRoot:
         BeaconChainProofs.verifyWithdrawal({
             beaconStateRoot: beaconStateRoot, 
@@ -619,6 +629,7 @@ contract EigenPod is IEigenPod, Initializable, ReentrancyGuardUpgradeable, Eigen
             withdrawalProof: withdrawalProof
         });
 
+        console.log("going to verify beacon chain proofs validator fields");
         uint40 validatorIndex = withdrawalFields.getValidatorIndex();
 
         // Verify passed-in validatorFields against verified beaconStateRoot:
@@ -629,6 +640,7 @@ contract EigenPod is IEigenPod, Initializable, ReentrancyGuardUpgradeable, Eigen
             validatorIndex: validatorIndex
         });
 
+        console.log("finished all verification");
         uint64 withdrawalAmountGwei = withdrawalFields.getWithdrawalAmountGwei();
         
         /**
@@ -636,6 +648,7 @@ contract EigenPod is IEigenPod, Initializable, ReentrancyGuardUpgradeable, Eigen
          * has fully withdrawn, and we process this as a full withdrawal.
          */
         if (withdrawalProof.getWithdrawalEpoch() >= validatorFields.getWithdrawableEpoch()) {
+            console.log("processing full withdrawal");
             return
                 _processFullWithdrawal(
                     validatorIndex,
@@ -712,6 +725,7 @@ contract EigenPod is IEigenPod, Initializable, ReentrancyGuardUpgradeable, Eigen
 
         emit FullWithdrawalRedeemed(validatorIndex, withdrawalTimestamp, recipient, withdrawalAmountGwei);
 
+        console.log("full withdrawal processed");
         return verifiedWithdrawal;
     }
 
