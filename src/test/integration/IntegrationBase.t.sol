@@ -62,7 +62,6 @@ abstract contract Flags is Test {
         emit log_named_uint("staker assets: ", _stakerAssets);
         emit log_named_uint("operator assets: ", _operatorAssets);
 
-        emit log_named_uint("HOLDS_LST: ", HOLDS_LST);
 
         // Convert flag bitmaps to bytes of set bits for easy use with _randUint
         stakerAssets = _bitmapToBytes(_stakerAssets);
@@ -140,7 +139,7 @@ abstract contract IntegrationBase is IntegrationDeployer, Flags {
     function setUp() public virtual override {
         super.setUp();
 
-        global = new Global();
+        global = new Global(delegationManager, strategyManager, eigenPodManager);
     }
 
     /**
@@ -159,7 +158,7 @@ abstract contract IntegrationBase is IntegrationDeployer, Flags {
 
         emit log_named_uint("_newStaker: asset flag is ", flag);
 
-        User staker = new User(delegationManager, strategyManager, eigenPodManager, global);
+        User staker = new User(global);
         IStrategy[] memory strategies;
         uint[] memory tokenBalances;
 
@@ -212,7 +211,7 @@ abstract contract IntegrationBase is IntegrationDeployer, Flags {
 
         emit log_named_uint("_newOperator: asset flag is ", flag);
 
-        User operator = new User(delegationManager, strategyManager, eigenPodManager, global);
+        User operator = new User(global);
         IStrategy[] memory strategies;
         uint[] memory tokenBalances;
 

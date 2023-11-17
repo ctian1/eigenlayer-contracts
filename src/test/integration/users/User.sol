@@ -3,34 +3,17 @@ pragma solidity =0.8.12;
 
 import "forge-std/Test.sol";
 
-import "src/contracts/core/DelegationManager.sol";
-import "src/contracts/core/StrategyManager.sol";
-import "src/contracts/pods/EigenPodManager.sol";
-
 import "src/contracts/interfaces/IDelegationManager.sol";
 import "src/contracts/interfaces/IStrategy.sol";
 
 import "src/test/integration/Global.t.sol";
 
 contract User is Test {
-
-    DelegationManager delegationManager;
-    StrategyManager strategyManager;
-    EigenPodManager eigenPodManager;
-
     Global global;
 
     IStrategy constant BEACONCHAIN_ETH_STRAT = IStrategy(0xbeaC0eeEeeeeEEeEeEEEEeeEEeEeeeEeeEEBEaC0);
 
-    constructor(
-        DelegationManager _delegationManager,
-        StrategyManager _strategyManager,
-        EigenPodManager _eigenPodManager,
-        Global _global
-    ) {
-        delegationManager = _delegationManager;
-        strategyManager = _strategyManager;
-        eigenPodManager = _eigenPodManager;
+    constructor(Global _global) {
         global = _global;
     }
 
@@ -46,7 +29,7 @@ contract User is Test {
             stakerOptOutWindowBlocks: 0
         });
 
-        delegationManager.registerAsOperator(details, "metadata");
+        delegationManager().registerAsOperator(details, "metadata");
     }
 
     /// @dev For each strategy/token balance, call the relevant deposit method
@@ -61,8 +44,8 @@ contract User is Test {
                 revert("depositIntoEigenlayer: unimplemented");
             } else {
                 IERC20 underlyingToken = strat.underlyingToken();
-                underlyingToken.approve(address(strategyManager), tokenBalance);
-                strategyManager.depositIntoStrategy(strat, underlyingToken, tokenBalance);
+                underlyingToken.approve(address(strategyManager()), tokenBalance);
+                strategyManager().depositIntoStrategy(strat, underlyingToken, tokenBalance);
             }
         }
     }
@@ -70,7 +53,7 @@ contract User is Test {
     /// @dev Delegate to the operator without a signature
     function delegateTo(User operator) public createSnapshot virtual {
         ISignatureUtils.SignatureWithExpiry memory emptySig;
-        delegationManager.delegateTo(address(operator), emptySig, bytes32(0));
+        delegationManager().delegateTo(address(operator), emptySig, bytes32(0));
     }
 
     /// @dev Queues a single withdrawal for every share and strategy pair
@@ -79,9 +62,9 @@ contract User is Test {
         uint[] memory shares
     ) public createSnapshot virtual returns (IDelegationManager.Withdrawal[] memory, bytes32[] memory) {
 
-        address operator = delegationManager.delegatedTo(address(this));
+        address operator = delegationManager().delegatedTo(address(this));
         address withdrawer = address(this);
-        uint nonce = delegationManager.cumulativeWithdrawalsQueued(address(this));
+        uint nonce = delegationManager().cumulativeWithdrawalsQueued(address(this));
         
         bytes32[] memory withdrawalRoots;
 
@@ -105,7 +88,7 @@ contract User is Test {
             shares: shares
         });
 
-        withdrawalRoots = delegationManager.queueWithdrawals(params);
+        withdrawalRoots = delegationManager().queueWithdrawals(params);
 
         // Basic sanity check - we do all other checks outside this file
         assertEq(withdrawals.length, withdrawalRoots.length, "User.queueWithdrawals: length mismatch");
@@ -129,9 +112,22 @@ contract User is Test {
             }
         }
 
-        delegationManager.completeQueuedWithdrawal(withdrawal, tokens, 0, receiveAsTokens);
+        delegationManager().completeQueuedWithdrawal(withdrawal, tokens, 0, receiveAsTokens);
 
         return tokens;
+    }
+
+    // Helper functions from global
+    function delegationManager() internal view returns (DelegationManager) {
+        return global.delegationManager();
+    }
+
+    function strategyManager() internal view returns (StrategyManager) {
+        return global.strategyManager();
+    }
+
+    function eigenPodManager() internal view returns (EigenPodManager) {
+        return global.eigenPodManager();
     }
 }
 
@@ -149,7 +145,7 @@ contract User is Test {
 //             uint tokenBalance = tokenBalances[i];
 //             IERC20 underlyingToken = strat.underlyingToken();
 
-//             strategyManager.depositIntoStrategy(strat, underlyingToken, tokenBalance);
+//             strategyManager().depositIntoStrategy(strat, underlyingToken, tokenBalance);
 //         }
 //     }
 // }
