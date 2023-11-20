@@ -79,6 +79,11 @@ contract User is Test {
         delegationManager.delegateTo(address(operator), emptySig, bytes32(0));
     }
 
+    /// @dev Undelegate from operator
+    function undelegate() public createSnapshot virtual returns(bytes32){
+        return delegationManager.undelegate(address(this));
+    }
+
     /// @dev Queues a single withdrawal for every share and strategy pair
     function queueWithdrawals(
         IStrategy[] memory strategies, 

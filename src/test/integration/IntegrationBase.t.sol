@@ -116,8 +116,22 @@ abstract contract IntegrationBase is IntegrationDeployer {
 
     function assert_AllWithdrawalsPending(bytes32[] memory withdrawalRoots, string memory err) internal {
         for (uint i = 0; i < withdrawalRoots.length; i++) {
-            assertTrue(delegationManager.pendingWithdrawals(withdrawalRoots[i]), err);
+            assert_withdrawalPending(withdrawalRoots[i], err);
         }
+    }
+
+    function assert_withdrawalPending(bytes32 withdrawalRoot, string memory err) internal {
+        assertTrue(delegationManager.pendingWithdrawals(withdrawalRoot), err);
+    }
+
+    function assert_withdrawalsNotPending(bytes32[] memory withdrawalRoots, string memory err) internal {
+        for (uint i = 0; i < withdrawalRoots.length; i++) {
+            assert_withdrawalNotPending(withdrawalRoots[i], err);
+        }
+    }
+
+    function assert_withdrawalNotPending(bytes32 withdrawalRoot, string memory err) internal {
+        assertFalse(delegationManager.pendingWithdrawals(withdrawalRoot), err);
     }
 
     function assert_ValidWithdrawalHashes(
@@ -126,8 +140,16 @@ abstract contract IntegrationBase is IntegrationDeployer {
         string memory err
     ) internal {
         for (uint i = 0; i < withdrawals.length; i++) {
-            assertEq(withdrawalRoots[i], delegationManager.calculateWithdrawalRoot(withdrawals[i]), err);
+            assert_ValidWithdrawalHash(withdrawals[i], withdrawalRoots[i], err);
         }
+    }
+
+    function assert_ValidWithdrawalHash(
+        IDelegationManager.Withdrawal memory withdrawal,
+        bytes32 withdrawalRoot,
+        string memory err
+    ) internal {
+        assertEq(withdrawalRoot, delegationManager.calculateWithdrawalRoot(withdrawal), err);
     }
     
     /**
@@ -219,6 +241,17 @@ abstract contract IntegrationBase is IntegrationDeployer {
         assertEq(prevQueuedWithdrawals + withdrawals.length, curQueuedWithdrawals, err);
     }
 
+    function assert_Snap_IncrementQueuedWithdrawals(
+        User staker,
+        string memory err
+    ) internal {
+        uint curQueuedWithdrawals = _getCumulativeWithdrawals(staker);
+        // Use timewarp to get previous cumulative withdrawals
+        uint prevQueuedWithdrawals = _getPrevCumulativeWithdrawals(staker);
+
+        assertEq(prevQueuedWithdrawals + 1, curQueuedWithdrawals, err);
+    }
+
     function assert_Snap_IncreasedTokenBalances(
         User staker,
         IERC20[] memory tokens,
@@ -234,6 +267,41 @@ abstract contract IntegrationBase is IntegrationDeployer {
             uint curBalance = curTokenBalances[i];
 
             assertEq(prevBalance + addedTokens[i], curBalance, err);
+        }
+    }
+
+    function assert_Snap_DecreasedStrategyShares(
+        IStrategy[] memory strategies,
+        uint256[] memory removedShares,
+        string memory err
+    ) internal {
+        uint256[] memory curShares = _getStrategyShares(strategies);
+
+        // Use timewarp to get previous strategy shares
+        uint256[] memory prevShares = _getPrevStrategyShares(strategies);
+
+        for (uint i = 0; i < strategies.length; i++) {
+            uint256 prevShare = prevShares[i];
+            uint256 curShare = curShares[i];
+
+            assertEq(prevShare - removedShares[i], curShare, err);
+        }
+    }
+
+    function assert_Snap_UnchangedStrategyShares(
+        IStrategy[] memory strategies,
+        string memory err
+    ) internal {
+        uint256[] memory curShares = _getStrategyShares(strategies);
+
+        // Use timewarp to get previous strategy shares
+        uint256[] memory prevShares = _getPrevStrategyShares(strategies);
+
+        for (uint i = 0; i < strategies.length; i++) {
+            uint256 prevShare = prevShares[i];
+            uint256 curShare = curShares[i];
+
+            assertEq(prevShare, curShare, err);
         }
     }
 
@@ -353,5 +421,19 @@ abstract contract IntegrationBase is IntegrationDeployer {
         }
 
         return balances;
+    }
+
+    function _getPrevStrategyShares(IStrategy[] memory strategies) internal timewarp() returns (uint256[] memory) {
+        return _getStrategyShares(strategies);
+    }
+
+    function _getStrategyShares(IStrategy[] memory strategies) internal view returns (uint256[] memory) {
+        uint256[] memory shares = new uint256[](strategies.length);
+
+        for (uint i = 0; i < strategies.length; i++) {
+            shares[i] = strategies[i].totalShares();
+        }
+
+        return shares;
     }
 }
