@@ -4,26 +4,27 @@ pragma solidity =0.8.12;
 import "src/test/integration/IntegrationBase.t.sol";
 import "src/test/integration/User.t.sol";
 
-contract Integration_Deposit_Delegate_Queue_Complete is IntegrationBase {
+contract Integration_Deposit_Delegate_Undelegate_Complete is IntegrationBase {
 
     /// Randomly generates a user with different held assets. Then:
     /// 1. deposit into strategy
     /// 2. delegate to an operator
-    /// 3. queue a withdrawal for all shares (withdrawer set to staker)
+    /// 3. undelegates from the operator
     /// 4. complete their queued withdrawal as tokens
-    function testFuzz_deposit_delegate_queue_completeAsTokens(uint24 _random) public {   
+    function testFuzz_deposit_undelegate_completeAsTokens(uint24 _random) public {   
         // When new Users are created, they will choose a random configuration from these params: 
         _configRand({
             _randomSeed: _random,
-            _assetTypes: HOLDS_LST | HOLDS_ETH | HOLDS_ALL,
-            _userTypes: DEFAULT | ALT_METHODS
+            _assetTypes: HOLDS_LST,
+            _userTypes: DEFAULT | SIGNED_METHODS
         });
 
         /// 0. Create an operator and a staker with:
         // - some nonzero underlying token balances
-        // - corresponding to a random subset of valid strategies (StrategyManager and/or EigenPodManager)
+        // - corresponding to a random number of strategies
         //
-        // ... check that the staker has no delegatable shares and isn't currently delegated
+        // ... check that the staker has no deleagatable shares and isn't delegated
+
         (
             User staker,
             IStrategy[] memory strategies, 
@@ -61,21 +62,20 @@ contract Integration_Deposit_Delegate_Queue_Complete is IntegrationBase {
             assert_Snap_AddedOperatorShares(operator, strategies, shares, "operator should have received shares");
         }
 
-        IDelegationManager.Withdrawal[] memory withdrawals;
-        bytes32[] memory withdrawalRoots;
-
+        IDelegationManager.Withdrawal memory expectedWithdrawal = _getExpectedWithdrawalStruct(staker);
         {
-            /// 3. Queue withdrawal(s):
-            // The staker will queue one or more withdrawals for the selected strategies and shares
+            /// 3. Undelegate from an operator
             //
-            // ... check that each withdrawal was successfully enqueued, that the returned roots
-            //     match the hashes of each withdrawal, and that the staker and operator have
-            //     reduced shares.
-            (withdrawals, withdrawalRoots) = staker.queueWithdrawals(strategies, shares);
+            // ... check that the staker is undelegated, all strategies from which the staker is deposited are unqeuued,
+            //     that the returned root matches the hashes for each strategy and share amounts, and that the staker
+            //     and operator have reduced shares
 
-            assert_AllWithdrawalsPending(withdrawalRoots, "staker's withdrawals should now be pending");
-            assert_ValidWithdrawalHashes(withdrawals, withdrawalRoots, "calculated withdrawals should match returned roots");
-            assert_Snap_IncreasedQueuedWithdrawals(staker, withdrawals, "staker should have increased nonce by withdrawals.length");
+            bytes32 withdrawalRoot = staker.undelegate();
+
+            assertFalse(delegationManager.isDelegated(address(staker)), "staker should not be delegated");
+            assert_ValidWithdrawalHash(expectedWithdrawal, withdrawalRoot, "calculated withdrawl should match returned root");
+            assert_withdrawalPending(withdrawalRoot, "staker's withdrawal should now be pending");
+            assert_Snap_IncrementQueuedWithdrawals(staker, "staker should have increased nonce by 1");
             assert_Snap_RemovedOperatorShares(operator, strategies, shares, "failed to remove operator shares");
             assert_Snap_RemovedStakerShares(staker, strategies, shares, "failed to remove staker shares");
         }
@@ -85,36 +85,38 @@ contract Integration_Deposit_Delegate_Queue_Complete is IntegrationBase {
 
         {
             /// 4. Complete withdrawal(s):
-            // The staker will complete each withdrawal as tokens
+            // The staker will complete the withdrawal as tokens
             // 
             // ... check that the withdrawal is not pending, that the staker received the expected tokens, and that the total shares of each 
             //     strategy withdrawn from decreased
-            for (uint i = 0; i < withdrawals.length; i++) {
-                IDelegationManager.Withdrawal memory withdrawal = withdrawals[i];
+            uint[] memory expectedTokens = _calculateExpectedTokens(expectedWithdrawal.strategies, expectedWithdrawal.shares);
+            IERC20[] memory tokens = staker.completeQueuedWithdrawal(expectedWithdrawal, true);
 
-                uint[] memory expectedTokens = _calculateExpectedTokens(withdrawal.strategies, withdrawal.shares);
-                IERC20[] memory tokens = staker.completeQueuedWithdrawal(withdrawal, true);
-
-                assert_withdrawalsNotPending(withdrawalRoots, "staker's withdrawals should no longer be pending");
-                assert_Snap_IncreasedTokenBalances(staker, tokens, expectedTokens, "staker should have received expected tokens");
-                assert_Snap_DecreasedStrategyShares(withdrawal.strategies, withdrawal.shares, "strategies should have total shares decremented");
-            }
+            assert_withdrawalNotPending(delegationManager.calculateWithdrawalRoot(expectedWithdrawal), "staker's withdrawal should no longer be pending");
+            assert_Snap_IncreasedTokenBalances(staker, tokens, expectedTokens, "staker should have received expected tokens");
+            assert_Snap_DecreasedStrategyShares(strategies, shares, "strategies should have total shares decremented");
         }
     }
 
-    function testFuzz_deposit_delegate_queue_completeAsShares(uint24 _random) public {   
+    /// Randomly generates a user with different held assets. Then:
+    /// 1. deposit into strategy
+    /// 2. delegate to an operator
+    /// 3. undelegates from the operator
+    /// 4. complete their queued withdrawal as shares
+    function testFuzz_deposit_undelegate_completeAsShares(uint24 _random) public {  
         // When new Users are created, they will choose a random configuration from these params: 
         _configRand({
             _randomSeed: _random,
-            _assetTypes: HOLDS_LST | HOLDS_ETH | HOLDS_ALL,
-            _userTypes: DEFAULT | ALT_METHODS
+            _assetTypes: HOLDS_LST,
+            _userTypes: DEFAULT | SIGNED_METHODS
         });
 
         /// 0. Create an operator and a staker with:
         // - some nonzero underlying token balances
-        // - corresponding to a random subset of valid strategies (StrategyManager and/or EigenPodManager)
+        // - corresponding to a random number of strategies
         //
-        // ... check that the staker has no delegatable shares and isn't currently delegated
+        // ... check that the staker has no deleagatable shares and isn't delegated
+
         (
             User staker,
             IStrategy[] memory strategies, 
@@ -152,21 +154,20 @@ contract Integration_Deposit_Delegate_Queue_Complete is IntegrationBase {
             assert_Snap_AddedOperatorShares(operator, strategies, shares, "operator should have received shares");
         }
 
-        IDelegationManager.Withdrawal[] memory withdrawals;
-        bytes32[] memory withdrawalRoots;
-
+        IDelegationManager.Withdrawal memory expectedWithdrawal = _getExpectedWithdrawalStruct(staker);
         {
-            /// 3. Queue withdrawal(s):
-            // The staker will queue one or more withdrawals for the selected strategies and shares
+            /// 3. Undelegate from an operator
             //
-            // ... check that each withdrawal was successfully enqueued, that the returned roots
-            //     match the hashes of each withdrawal, and that the staker and operator have
-            //     reduced shares.
-            (withdrawals, withdrawalRoots) = staker.queueWithdrawals(strategies, shares);
+            // ... check that the staker is undelegated, all strategies from which the staker is deposited are unqeuued,
+            //     that the returned root matches the hashes for each strategy and share amounts, and that the staker
+            //     and operator have reduced shares
 
-            assert_AllWithdrawalsPending(withdrawalRoots, "staker's withdrawals should now be pending");
-            assert_ValidWithdrawalHashes(withdrawals, withdrawalRoots, "calculated withdrawals should match returned roots");
-            assert_Snap_IncreasedQueuedWithdrawals(staker, withdrawals, "staker should have increased nonce by withdrawals.length");
+            bytes32 withdrawalRoot = staker.undelegate();
+
+            assertFalse(delegationManager.isDelegated(address(staker)), "staker should not be delegated");
+            assert_ValidWithdrawalHash(expectedWithdrawal, withdrawalRoot, "calculated withdrawl should match returned root");
+            assert_withdrawalPending(withdrawalRoot, "staker's withdrawal should now be pending");
+            assert_Snap_IncrementQueuedWithdrawals(staker, "staker should have increased nonce by 1");
             assert_Snap_RemovedOperatorShares(operator, strategies, shares, "failed to remove operator shares");
             assert_Snap_RemovedStakerShares(staker, strategies, shares, "failed to remove staker shares");
         }
@@ -176,20 +177,37 @@ contract Integration_Deposit_Delegate_Queue_Complete is IntegrationBase {
 
         {
             /// 4. Complete withdrawal(s):
-            // The staker will complete each withdrawal as tokens
+            // The staker will complete the withdrawal as tokens
             // 
             // ... check that the withdrawal is not pending, that the withdrawer received the expected shares, and that the total shares of each 
-            //     strategy withdrawn remains unchanged
-            for (uint i = 0; i < withdrawals.length; i++) {
-                IDelegationManager.Withdrawal memory withdrawal = withdrawals[i];
+            //     strategy withdrawn remains unchanged 
+            staker.completeQueuedWithdrawal(expectedWithdrawal, false);
 
-                // uint[] memory expectedTokens = _calculateExpectedTokens(withdrawal.strategies, withdrawal.shares);
-                staker.completeQueuedWithdrawal(withdrawal, false);
+            assert_withdrawalNotPending(delegationManager.calculateWithdrawalRoot(expectedWithdrawal), "staker's withdrawal should no longer be pending");
+            assert_Snap_AddedStakerShares(staker, expectedWithdrawal.strategies, expectedWithdrawal.shares, "staker should have received expected tokens");
+            assert_Snap_UnchangedStrategyShares(strategies, "strategies should have total shares unchanged");
+        } 
+    }
 
-                assert_withdrawalsNotPending(withdrawalRoots, "staker's withdrawals should no longer be pending");
-                assert_Snap_AddedStakerShares(staker, withdrawal.strategies, withdrawal.shares, "staker should have received expected tokens");
-                assert_Snap_UnchangedStrategyShares(withdrawal.strategies, "strategies should have total shares unchanged");
-            }
-        }
+    /// @notice Assumes staker and withdrawer are the same
+    function _getExpectedWithdrawalStruct(User staker) internal view returns (IDelegationManager.Withdrawal memory) {
+        (IStrategy[] memory strategies, uint256[] memory shares)
+            = delegationManager.getDelegatableShares(address(staker));
+
+        return IDelegationManager.Withdrawal({
+            staker: address(staker),
+            delegatedTo: delegationManager.delegatedTo(address(staker)),
+            withdrawer: address(staker),
+            nonce: delegationManager.cumulativeWithdrawalsQueued(address(staker)),
+            startBlock: uint32(block.number),
+            strategies: strategies,
+            shares: shares
+        });
+    }
+
+    function _getExpectedWithdrawalStruct_diffWithdrawer(User staker, address withdrawer) internal view returns (IDelegationManager.Withdrawal memory) {
+        IDelegationManager.Withdrawal memory withdrawal = _getExpectedWithdrawalStruct(staker);
+        withdrawal.withdrawer = withdrawer;
+        return withdrawal;
     }
 }
