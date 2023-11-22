@@ -1288,12 +1288,16 @@ contract DelegationUnitTests is EigenLayerTestHelper {
     event ForceTotalWithdrawalCalled(address staker);
 
     /**
-     * @notice Verifies that the `undelegate` function properly calls `strategyManager.forceTotalWithdrawal` when necessary
-     * @param callFromOperatorOrApprover -- calls from the operator if 'false' and the 'approver' if true
+     * @dev Tests the force undelegation logic of the DelegationManager contract.
+     *      This function simulates the process of undelegating a staker from an operator,
+     *      taking into account different scenarios based on the caller (operator/approver).
+     *
+     * @param staker The address of the staker to be undelegated.
+     * @param salt A salt value used for generating a unique delegation approver address.
+     * @param callFromOperatorOrApprover Boolean to determine if the function is called
+     *                                   by the operator or the delegation approver.
      */
-    function testForceUndelegation(address staker, bytes32 salt, bool callFromOperatorOrApprover) public
-        fuzzedAddress(staker)
-    {
+    function testForceUndelegation(address staker, bytes32 salt, bool callFromOperatorOrApprover) public fuzzedAddress(staker) {
         address delegationApprover = cheats.addr(delegationSignerPrivateKey);
         address operator = address(this);
 
@@ -1304,43 +1308,59 @@ contract DelegationUnitTests is EigenLayerTestHelper {
         uint256 expiry = type(uint256).max;
         testDelegateToOperatorWhoRequiresECDSASignature(staker, salt, expiry);
 
-        address caller;
-        if (callFromOperatorOrApprover) {
-            caller = delegationApprover;
-        } else {
-            caller = operator;
-        }
+        address caller = callFromOperatorOrApprover ? delegationApprover : operator;
 
         // call the `undelegate` function
         cheats.startPrank(caller);
-        // check that the correct calldata is forwarded by looking for an event emitted by the StrategyManagerMock contract
-        if (strategyManagerMock.stakerStrategyListLength(staker) != 0) {
-            cheats.expectEmit(true, true, true, true, address(strategyManagerMock));
-            emit ForceTotalWithdrawalCalled(staker);
-        }
-        // withdrawal root
         (IStrategy[] memory strategies, uint256[] memory shares) = delegationManager.getDelegatableShares(staker);
-        IDelegationManager.Withdrawal memory fullWithdrawal = IDelegationManager.Withdrawal({
-            staker: staker,
-            delegatedTo: operator,
-            withdrawer: staker,
-            nonce: delegationManager.cumulativeWithdrawalsQueued(staker),
-            startBlock: uint32(block.number),
-            strategies: strategies,
-            shares: shares
-        });
-        bytes32 withdrawalRoot = delegationManager.calculateWithdrawalRoot(fullWithdrawal);
+        bytes32[] memory expectedWithdrawalRoots = calculateExpectedWithdrawalRoots(staker, operator, strategies, shares);
+        
+        bytes32[] memory returnValue = delegationManager.undelegate(staker);
 
-        (bytes32 returnValue) = delegationManager.undelegate(staker);
-
-        if (strategies.length == 0) {
-            withdrawalRoot = bytes32(0);
+        // Check lengths of the return value and expected values
+        require(returnValue.length == expectedWithdrawalRoots.length, "Return value length mismatch");
+        
+        // Check each withdrawal root in the return value against the expected withdrawal roots
+        for (uint i = 0; i < returnValue.length; i++) {
+            require(returnValue[i] == expectedWithdrawalRoots[i], "Mismatch in withdrawal root");
         }
-
-        // check that the return value is the withdrawal root
-        require(returnValue == withdrawalRoot, "contract returned wrong return value");
         cheats.stopPrank();
     }
+
+    /**
+     * @dev Calculates the expected withdrawal roots for a given staker and operator.
+     *      This function computes the roots based on the staker's strategies and shares,
+     *      and is used to validate the output of the `undelegate` function in tests.
+     *
+     * @param staker The address of the staker whose withdrawal roots are being calculated.
+     * @param operator The address of the operator to whom the staker is delegated.
+     * @param strategies An array of strategies associated with the staker.
+     * @param shares An array of shares corresponding to each strategy.
+     * @return expectedWithdrawalRoots An array of expected withdrawal root hashes.
+     */
+    function calculateExpectedWithdrawalRoots(address staker, address operator, IStrategy[] memory strategies, uint256[] memory shares) internal returns (bytes32[] memory expectedWithdrawalRoots) {
+        if (strategies.length > 0) {
+            expectedWithdrawalRoots = new bytes32[](strategies.length);
+            for (uint i = 0; i < strategies.length; i++) {
+                IDelegationManager.Withdrawal memory withdrawal = IDelegationManager.Withdrawal({
+                    staker: staker,
+                    delegatedTo: operator,
+                    withdrawer: staker,
+                    nonce: delegationManager.cumulativeWithdrawalsQueued(staker) + i,
+                    startBlock: uint32(block.number),
+                    strategies: new IStrategy[](1),
+                    shares: new uint256[](1)
+                });
+                withdrawal.strategies[0] = strategies[i];
+                withdrawal.shares[0] = shares[i];
+
+                expectedWithdrawalRoots[i] = delegationManager.calculateWithdrawalRoot(withdrawal);
+            }
+        } else {
+            expectedWithdrawalRoots = new bytes32[](0);
+        }
+    }
+
 
     /**
      * @notice Verifies that the `undelegate` function has proper access controls (can only be called by the operator who the `staker` has delegated
