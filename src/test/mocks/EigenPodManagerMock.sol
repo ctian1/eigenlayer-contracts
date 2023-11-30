@@ -82,7 +82,7 @@ contract EigenPodManagerMock is IEigenPodManager, Test {
         bytes32 FUNCTION_ID,
         uint64 startSlot,
         uint64 endSlot,
-        address podAddress,
+        bytes4 callbackSelector,
         bytes memory callbackData,
         uint32 callbackGasLimit,
         address podOwner
